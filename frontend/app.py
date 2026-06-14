@@ -101,6 +101,48 @@ if selected_id:
                 st.json(trace.get("request_sent"))
             with st.expander("Response received (full chain)"):
                 st.json(trace.get("response_received"))
+
+            # ----------------------------------------------------------------- #
+            # Audit trail: full payload chain from cardholder to merchant terminal
+            # ----------------------------------------------------------------- #
+            audit_trail = trace.get("audit_trail", [])
+            if audit_trail:
+                st.markdown("---")
+                st.markdown("#### Audit Trail")
+                st.caption(
+                    "Full payload flow: Cardholder \u2192 Terminal \u2192 Acquirer "
+                    "\u2192 Visa \u2192 Marqeta \u2192 Customer JIT \u2192 back to Merchant Terminal"
+                )
+                show_payloads = st.checkbox("Show full payloads", value=False,
+                                            key="audit_show_payloads")
+
+                for entry in audit_trail:
+                    step = entry.get("step", "")
+                    actor = entry.get("actor", "")
+                    direction = entry.get("direction", "")
+                    label = entry.get("label", "")
+                    payload = entry.get("payload")
+                    timestamp = entry.get("timestamp", "")
+
+                    # Direction colour: outbound = blue arrow, inbound = green arrow
+                    if direction == "\u2192":
+                        arrow_html = '<span style="color:#1f77b4;font-weight:bold">\u2192</span>'
+                    else:
+                        arrow_html = '<span style="color:#2ca02c;font-weight:bold">\u2190</span>'
+
+                    st.markdown(
+                        f'**Step {step}** &nbsp;{arrow_html}&nbsp; **{actor}**'
+                        f'&nbsp;&nbsp;<span style="color:#888;font-size:0.85em">{timestamp}</span>',
+                        unsafe_allow_html=True,
+                    )
+                    st.caption(label)
+
+                    if show_payloads and payload:
+                        with st.expander(f"Payload \u25bc  (Step {step} \u2013 {actor})"):
+                            st.json(payload)
+
+                    st.markdown('<hr style="margin:6px 0;border-color:#e0e0e0">', unsafe_allow_html=True)
+
         elif trace:
             st.error(trace.get("error"))
 
