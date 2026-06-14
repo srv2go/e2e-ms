@@ -1,11 +1,8 @@
 {
   "id": "suite_pin_verify",
   "name": "PIN Verification - Approve",
-  "description": "Chip+PIN authorization (pos_entry_mode 021), $10 within limit",
+  "description": "Chip+PIN authorization (pos_entry_mode 021), $10 within limit. DE55 ICC data included.",
   "event_type": "authorization",
-  "webhook_overrides": {
-    "transaction.pos.pin_present": true
-  },
   "request": {
     "transaction_id": "TXN_SUITE_PIN",
     "pan": "4111111111111111",
@@ -17,9 +14,11 @@
     "merchant_state": "WA",
     "merchant_country": "USA",
     "pos_entry_mode": "021",
+    "pos_condition_code": "00",
     "terminal_id": "TERM1005",
     "acquiring_institution_id": "123456",
-    "forwarding_institution_id": "123456"
+    "forwarding_institution_id": "123456",
+    "icc_data": "9F2608A1B2C3D4E5F6A7B89F2701809F100706010A03A020009F3704AABBCCDD9F360200015F2A0208409A032401159C01009F02060000000010009F03060000000000009F1A020840"
   },
   "expected_network_response_code": "00",
   "expected_customer_decision": "APPROVED"

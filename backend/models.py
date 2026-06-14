@@ -33,6 +33,17 @@ class NetworkAuthRequest(BaseModel):
     stan: Optional[str] = None       # DE11 - System Trace Audit Number
     rrn: Optional[str] = None        # DE37 - Retrieval Reference Number
 
+    # ── Secondary bitmap / EMV fields ───────────────────────────────────────
+    # DE55 — ICC System Related Data (BER-TLV encoded EMV chip data: ARQC,
+    # CDOL, ATC, TVR, CVR, IAD, etc.).  Hex string or base64 from terminal.
+    icc_data: Optional[str] = None   # DE55 - EMV/ICC chip data
+    # Additional optional DE fields that may be present in the scenario request
+    processing_code: Optional[str] = None    # DE3
+    pos_condition_code: Optional[str] = None # DE25
+    track2_data: Optional[str] = None        # DE35 (masked / tokenised)
+    pos_data_code: Optional[str] = None      # DE61
+    additional_pos_info: Optional[str] = None # DE60
+
     # Routing helpers used for non-authorization events. These are carried in the
     # same request body and consumed by the Marqeta simulator (not part of a real
     # ISO field set, but convenient for this POC).
@@ -40,8 +51,9 @@ class NetworkAuthRequest(BaseModel):
     advice_type: Optional[str] = None
     original_transaction_id: Optional[str] = None
 
-    # Ignore any stray fields rather than 422-ing the whole chain.
-    model_config = {"extra": "ignore"}
+    # Allow (and preserve) any extra fields from scenario JSON so they appear
+    # in request_sent and audit trail without causing a 422.
+    model_config = {"extra": "allow"}
 
 
 class NetworkAuthResponse(BaseModel):
