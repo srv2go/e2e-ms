@@ -16,14 +16,18 @@ st.set_page_config(page_title="Marqeta E2E Simulator", page_icon="💳", layout=
 # --------------------------------------------------------------------------- #
 def _init_session_state():
     defaults = {
-        "iso_mode":        False,
-        "iso_jcf_mapping": None,   # populated lazily from iso_mapping.py
-        "suite_result":    None,
-        "apdu_log":        [],
-        "card_state":      None,
-        "demo_mode":       False,
-        "demo_running":    False,
-        "last_trace":      None,
+        "iso_mode":           False,
+        "iso_jcf_mapping":    None,    # populated lazily from iso_mapping.py
+        "suite_result":       None,
+        "apdu_log":           [],
+        "card_state":         None,
+        "demo_mode":          False,
+        "demo_running":       False,
+        "last_trace":         None,
+        # Demo playback state
+        "demo_audit_steps":   [],      # captured audit trail for playback
+        "demo_playback_idx":  0,       # current step in playback (0-based)
+        "demo_playback_mode": False,   # True = playback panel is visible
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -99,34 +103,87 @@ def _build_html_report(suite_result: dict) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# Helper: Demo Mode node diagram renderer (Enhancement 4)
+# Demo Mode — node diagram + step map (Enhancement 4)
 # --------------------------------------------------------------------------- #
+# Nodes in order (index 0..5)
 _DEMO_NODES = [
-    ("💳", "Wallet"),
-    ("🏪", "Terminal"),
-    ("🏦", "Acquirer"),
-    ("🌐", "Visa"),
-    ("⚙️", "Marqeta"),
-    ("✅", "JIT"),
+    ("💳", "Wallet"),      # 0
+    ("🏪", "Terminal"),    # 1
+    ("🏦", "Acquirer"),    # 2
+    ("🌐", "Visa"),        # 3
+    ("⚙️", "Marqeta"),     # 4
+    ("✅", "JIT"),         # 5
 ]
-# Maps audit step index (0-based) → which node to highlight
-_STEP_NODE_MAP = [0, 1, 2, 3, 4, 5, 5, 4, 3, 2, 1]
+
+# Correct mapping: audit step (1-based) → node index to highlight
+# Steps 1-9 from backend/main.py:
+#   1 Cardholder Tap          → 0 Wallet
+#   2 Terminal                → 1 Terminal
+#   3 Acquirer (outbound)     → 2 Acquirer
+#   4 Visa Network (outbound) → 3 Visa
+#   5 Marqeta Issuer (JIT fw) → 4 Marqeta
+#   6 Customer JIT decision   → 5 JIT
+#   7 Visa Network (inbound)  → 3 Visa
+#   8 Acquirer (inbound)      → 2 Acquirer
+#   9 Merchant Terminal       → 1 Terminal
+_STEP_NODE_MAP = {
+    1: 0,   # Cardholder Tap → Wallet
+    2: 1,   # Terminal → Terminal
+    3: 2,   # Acquirer outbound → Acquirer
+    4: 3,   # Visa outbound → Visa
+    5: 4,   # Marqeta dispatch → Marqeta
+    6: 5,   # JIT decision → JIT
+    7: 3,   # Visa inbound → Visa
+    8: 2,   # Acquirer inbound → Acquirer
+    9: 1,   # Merchant Terminal → Terminal  ← was wrong (showed Visa before fix)
+}
 
 
 def _render_node_diagram(active: int) -> str:
+    """Render the 6-node flow diagram with one node highlighted."""
     parts = []
     for i, (emoji, label) in enumerate(_DEMO_NODES):
         if i == active:
-            s = ("background:#1f77b4;color:white;padding:5px 10px;"
-                 "border-radius:8px;font-weight:bold;white-space:nowrap")
+            s = ("background:#1f77b4;color:white;padding:6px 12px;"
+                 "border-radius:8px;font-weight:bold;white-space:nowrap;"
+                 "box-shadow:0 2px 6px rgba(31,119,180,0.4)")
         else:
-            s = ("background:#f0f0f0;color:#555;padding:5px 10px;"
+            s = ("background:#f0f0f0;color:#555;padding:6px 12px;"
                  "border-radius:8px;white-space:nowrap")
         parts.append(f'<span style="{s}">{emoji} {label}</span>')
     return (
         '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;'
-        'padding:8px 0">' + ' &rarr; '.join(parts) + '</div>'
+        'padding:10px 0">' + ' <span style="color:#888">&rarr;</span> '.join(parts) + '</div>'
     )
+
+
+def _render_playback_step(entry: dict, step_num: int, total_steps: int):
+    """Render a single audit step nicely for the playback panel."""
+    direction = entry.get("direction", "→")
+    is_outbound = direction == "\u2192"
+    dir_color  = "#1f77b4" if is_outbound else "#2ca02c"
+    dir_label  = "OUTBOUND ▶" if is_outbound else "◀ INBOUND"
+
+    node_idx = _STEP_NODE_MAP.get(step_num, 0)
+    st.markdown(_render_node_diagram(node_idx), unsafe_allow_html=True)
+
+    st.markdown(
+        f'<div style="background:#f8f9fa;border-left:4px solid {dir_color};'
+        f'padding:10px 14px;border-radius:4px;margin:8px 0">'
+        f'<b>Step {step_num} / {total_steps}</b> &nbsp;'
+        f'<span style="background:{dir_color};color:#fff;padding:2px 9px;'
+        f'border-radius:4px;font-size:0.8em;font-weight:bold">{dir_label}</span>'
+        f'&nbsp; <b>{entry.get("actor","")}</b><br>'
+        f'<span style="color:#555;font-size:0.9em">{entry.get("label","")}</span><br>'
+        f'<span style="color:#999;font-size:0.78em">{entry.get("timestamp","")}</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    payload = entry.get("payload")
+    if payload:
+        with st.expander(f"📦 Payload — {entry.get('actor','')}", expanded=True):
+            st.json(payload)
 
 
 # --------------------------------------------------------------------------- #
@@ -225,7 +282,7 @@ if selected_id:
                 st.json(trace.get("response_received"))
 
             # ----------------------------------------------------------------- #
-            # Audit trail: full payload chain from cardholder to merchant terminal
+            # Audit trail
             # ----------------------------------------------------------------- #
             audit_trail = trace.get("audit_trail", [])
             if audit_trail:
@@ -246,7 +303,6 @@ if selected_id:
                     payload = entry.get("payload")
                     timestamp = entry.get("timestamp", "")
 
-                    # Direction colour: outbound = blue arrow, inbound = green arrow
                     if direction == "\u2192":
                         arrow_html = '<span style="color:#1f77b4;font-weight:bold">\u2192</span>'
                     else:
@@ -279,48 +335,82 @@ if st.session_state.iso_mode:
         st.session_state.iso_jcf_mapping = list(DEFAULT_ISO_JCF_MAPPING)
 
     st.markdown("---")
-    with st.expander("🔄 ISO 8583 \u2194 JCF Mapping Table (editable)", expanded=True):
+    with st.expander("🔄 ISO 8583 ↔ JCF Mapping Table (editable)", expanded=True):
         st.caption(
-            "Edit DE \u2194 JCF field mappings below. Add rows, change DE numbers or "
-            "JCF field names. Changes are session-scoped and reset on browser refresh."
+            "Full ISO 8583 DE ↔ Marqeta JCF field mapping. Includes primary DEs, "
+            "merchant/location sub-fields (DE43), EMV chip data (DE55), and secondary "
+            "bitmap DEs. Add rows to map any additional DE. Changes are session-scoped."
         )
         edited = st.data_editor(
             pd.DataFrame(st.session_state.iso_jcf_mapping),
             num_rows="dynamic",
             use_container_width=True,
             column_config={
-                "de":          st.column_config.TextColumn("DE #",        width=80),
-                "iso_name":    st.column_config.TextColumn("ISO Name",    width=200),
+                "de":          st.column_config.TextColumn("DE #",        width=90),
+                "iso_name":    st.column_config.TextColumn("ISO Name",    width=210),
                 "jcf_field":   st.column_config.TextColumn("JCF Field",   width=150),
-                "description": st.column_config.TextColumn("Description", width=240),
+                "description": st.column_config.TextColumn("Description", width=260),
                 "transform":   st.column_config.SelectboxColumn(
                     "Transform", width=160,
-                    options=["passthrough", "tokenize", "format_iso8601",
-                             "extract_time", "truncate_25", "numeric_to_alpha"],
+                    options=["passthrough", "tokenize", "format_iso8601", "extract_time",
+                             "extract_date", "truncate_25", "numeric_to_alpha",
+                             "emv_tlv_decode"],
+                ),
+                "category":    st.column_config.SelectboxColumn(
+                    "Category", width=110,
+                    options=["primary", "merchant", "trace", "emv", "secondary"],
                 ),
             },
             key="iso_tbl",
         )
         st.session_state.iso_jcf_mapping = edited.to_dict("records")
-        if st.button("Reset to defaults", key="iso_reset"):
+        col_r1, col_r2 = st.columns([1, 5])
+        if col_r1.button("Reset to defaults", key="iso_reset"):
             st.session_state.iso_jcf_mapping = list(DEFAULT_ISO_JCF_MAPPING)
             st.rerun()
 
     if st.session_state.last_trace:
         tr = st.session_state.last_trace
-        with st.expander("ISO \u2194 JCF Translation \u2014 last transaction", expanded=True):
-            rows = extract_iso_jcf_values(
-                st.session_state.iso_jcf_mapping,
-                tr.get("request_sent", {}),
-                tr.get("response_received", {}),
-            )
-            df_tr = pd.DataFrame(rows)[
-                ["de", "iso_name", "iso_value", "jcf_field", "jcf_value", "transform"]
-            ]
-            st.dataframe(df_tr, use_container_width=True)
+        with st.expander("ISO ↔ JCF Translation — last transaction", expanded=True):
+            # Category filter tabs
+            cat_tab_labels = ["All DEs", "Primary", "Merchant / DE43", "EMV / DE55",
+                              "Trace IDs", "Secondary Bitmap"]
+            cat_map = {
+                "All DEs": "all", "Primary": "primary",
+                "Merchant / DE43": "merchant", "EMV / DE55": "emv",
+                "Trace IDs": "trace", "Secondary Bitmap": "secondary",
+            }
+            iso_tabs = st.tabs(cat_tab_labels)
+
+            for tab, tab_label in zip(iso_tabs, cat_tab_labels):
+                with tab:
+                    cat_filter = cat_map[tab_label]
+                    rows = extract_iso_jcf_values(
+                        st.session_state.iso_jcf_mapping,
+                        tr.get("request_sent", {}),
+                        tr.get("response_received", {}),
+                        category_filter=cat_filter,
+                    )
+                    if rows:
+                        df_tr = pd.DataFrame(rows)
+                        # Colour rows where a transform was applied
+                        cols_show = ["de", "iso_name", "iso_value", "jcf_field",
+                                     "jcf_value", "transform", "category"]
+                        cols_show = [c for c in cols_show if c in df_tr.columns]
+                        st.dataframe(df_tr[cols_show], use_container_width=True)
+
+                        n_transformed = sum(1 for r in rows if r.get("transformed"))
+                        n_populated   = sum(1 for r in rows if r.get("iso_value") != "(none)")
+                        st.caption(
+                            f"{n_populated} / {len(rows)} DEs populated in this transaction · "
+                            f"{n_transformed} with non-passthrough transform (tokenize / truncate / decode …)"
+                        )
+                    else:
+                        st.info("No DEs in this category for the current mapping.")
+
             st.caption(
-                "Fields with a non-passthrough transform (e.g. tokenize, truncate_25) "
-                "indicate data element conversion performed by the issuer processor (JPBOS/JCF)."
+                "💡 DE55 (ICC data) only appears when `icc_data` is set in the scenario request. "
+                "The Chip+PIN suite scenario (`suite_pin_verify`) includes a sample DE55 TLV blob."
             )
 
 # --------------------------------------------------------------------------- #
@@ -328,23 +418,41 @@ if st.session_state.iso_mode:
 # --------------------------------------------------------------------------- #
 if st.session_state.demo_mode:
     st.markdown("---")
-    st.markdown("### \U0001f3ac Demo Mode \u2014 Animated Transaction Flow")
+    st.markdown("### 🎬 Demo Mode — Animated Transaction Flow")
     st.caption(
         "Executes a standard Purchase-Approve scenario, then replays each "
         "hop with live payload reveal and an animated node diagram."
     )
-    d1, d2 = st.columns([2, 1])
-    run_demo  = d1.button("\u25b6 Run Demo", type="primary", key="demo_run")
-    stop_demo = d2.button("\u23f9 Stop Demo", key="demo_stop")
+
+    # ── Control row ──────────────────────────────────────────────────────────
+    d1, d2, d3 = st.columns([2, 1, 1])
+    run_demo      = d1.button("▶ Run Demo", type="primary", key="demo_run")
+    stop_demo     = d2.button("⏹ Stop Demo", key="demo_stop")
+    playback_btn  = d3.button(
+        "⏮ Playback Steps",
+        key="demo_playback_btn",
+        disabled=not bool(st.session_state.demo_audit_steps),
+        help="Step through each audit hop manually after the demo has run.",
+    )
+
     if stop_demo:
         st.session_state.demo_running = False
+    if playback_btn:
+        st.session_state.demo_playback_mode = True
+        st.session_state.demo_playback_idx  = 0
 
+    # ── Live animated run ─────────────────────────────────────────────────────
     if run_demo:
-        st.session_state.demo_running = True
+        st.session_state.demo_running      = True
+        st.session_state.demo_playback_mode = False
         demo_trace = api_post("/execute/auth_approve_01?unique=true")
         if demo_trace and "error" not in demo_trace:
+            # Persist audit steps for playback
+            st.session_state.demo_audit_steps = demo_trace.get("audit_trail", [])
+            st.session_state.last_trace = demo_trace
+
             speed = st.session_state.get("demo_speed", 1.5)
-            audit = demo_trace.get("audit_trail", [])
+            audit = st.session_state.demo_audit_steps
             n_ph  = st.empty()   # node diagram placeholder
             s_ph  = st.empty()   # step status placeholder
             p_ph  = st.empty()   # payload placeholder
@@ -354,18 +462,18 @@ if st.session_state.demo_mode:
                     st.warning("Demo stopped.")
                     break
 
-                step_idx  = entry.get("step", 1) - 1
-                node_idx  = _STEP_NODE_MAP[min(step_idx, len(_STEP_NODE_MAP) - 1)]
+                step_num  = entry.get("step", 1)
+                node_idx  = _STEP_NODE_MAP.get(step_num, 0)
                 direction = entry.get("direction", "\u2192")
                 dir_color = "#1f77b4" if direction == "\u2192" else "#2ca02c"
-                dir_label = "OUTBOUND" if direction == "\u2192" else "INBOUND"
+                dir_label = "OUTBOUND ▶" if direction == "\u2192" else "◀ INBOUND"
 
                 n_ph.markdown(_render_node_diagram(node_idx), unsafe_allow_html=True)
                 s_ph.markdown(
-                    f'<div style="margin-top:8px">'
-                    f'<b>Step {entry.get("step")}</b>: {entry.get("actor")} '
+                    f'<div style="margin-top:8px;background:#f8f9fa;padding:10px;border-radius:6px">'
+                    f'<b>Step {step_num} / {len(audit)}</b>: {entry.get("actor")} '
                     f'<span style="background:{dir_color};color:#fff;padding:2px 8px;'
-                    f'border-radius:4px;font-size:0.8em">{dir_label}</span>'
+                    f'border-radius:4px;font-size:0.8em;font-weight:bold">{dir_label}</span>'
                     f'<br><em>{entry.get("label","")}</em></div>',
                     unsafe_allow_html=True,
                 )
@@ -387,12 +495,69 @@ if st.session_state.demo_mode:
                 decision = demo_trace.get("actual_customer_decision", "UNKNOWN")
                 rc       = demo_trace.get("actual_network_response_code", "?")
                 if decision == "APPROVED":
-                    st.success(f"\u2705 Transaction Complete \u2014 APPROVED (RC: {rc})")
+                    st.success(f"✅ Transaction Complete — APPROVED (RC: {rc})")
                 else:
-                    st.error(f"\u274c Transaction Complete \u2014 {decision} (RC: {rc})")
+                    st.error(f"❌ Transaction Complete — {decision} (RC: {rc})")
+
+            # Offer playback immediately after run finishes
+            st.info("Demo complete. Click **⏮ Playback Steps** above to walk through each hop manually.")
         else:
-            st.error("Demo failed to run. Is the backend running and scenario 'auth_approve_01' available?")
+            st.error(
+                "Demo failed to run. Is the backend running and "
+                "scenario 'auth_approve_01' available?"
+            )
             st.session_state.demo_running = False
+
+    # ── Step-by-step Playback panel ───────────────────────────────────────────
+    if st.session_state.demo_playback_mode and st.session_state.demo_audit_steps:
+        steps  = st.session_state.demo_audit_steps
+        n      = len(steps)
+        idx    = st.session_state.demo_playback_idx        # 0-based index
+        entry  = steps[idx]
+        step_num = entry.get("step", idx + 1)
+
+        st.markdown("---")
+        st.markdown("#### ⏮ Step-by-Step Playback")
+
+        # Navigation controls
+        pb1, pb2, pb3, pb4, pb5 = st.columns([1, 1, 3, 1, 1])
+        if pb1.button("⏮ First", key="pb_first"):
+            st.session_state.demo_playback_idx = 0
+            st.rerun()
+        if pb2.button("◀ Prev", key="pb_prev", disabled=(idx == 0)):
+            st.session_state.demo_playback_idx = max(0, idx - 1)
+            st.rerun()
+        pb3.markdown(
+            f'<div style="text-align:center;padding-top:6px">'
+            f'Step <b>{idx + 1}</b> of <b>{n}</b></div>',
+            unsafe_allow_html=True,
+        )
+        if pb4.button("Next ▶", key="pb_next", disabled=(idx >= n - 1)):
+            st.session_state.demo_playback_idx = min(n - 1, idx + 1)
+            st.rerun()
+        if pb5.button("Last ⏭", key="pb_last"):
+            st.session_state.demo_playback_idx = n - 1
+            st.rerun()
+
+        # Render the current step
+        _render_playback_step(entry, step_num, n)
+
+        # Progress bar
+        st.progress((idx + 1) / n)
+
+        # Step overview table (all steps, current row highlighted via markdown)
+        with st.expander("📋 All steps overview", expanded=False):
+            for i, e in enumerate(steps):
+                sn    = e.get("step", i + 1)
+                dir_  = "→" if e.get("direction") == "\u2192" else "←"
+                actor = e.get("actor", "")
+                bold  = "**" if i == idx else ""
+                marker = " ◀ current" if i == idx else ""
+                st.markdown(f"{bold}Step {sn} {dir_} {actor}{marker}{bold}")
+
+        if pb3.button("✖ Close Playback", key="pb_close"):
+            st.session_state.demo_playback_mode = False
+            st.rerun()
 
 # --------------------------------------------------------------------------- #
 # Generate scenario
@@ -452,9 +617,9 @@ else:
 # Enhancement 2: Test Suite Runner
 # --------------------------------------------------------------------------- #
 st.markdown("---")
-with st.expander("\U0001f9ea Test Suite Runner", expanded=False):
+with st.expander("🧪 Test Suite Runner", expanded=False):
     st.caption(
-        "Run a curated suite of functional test cases (Purchase, ATM, PIN, Pre-Auth, "
+        "Run a curated suite of functional test cases (Purchase, ATM, PIN+EMV, Pre-Auth, "
         "OCT, Refund, Clearing, Reversal, Duplicate, Zero-Amount, Multi-Currency) "
         "and get a pass/fail summary with a downloadable HTML report."
     )
@@ -472,10 +637,10 @@ with st.expander("\U0001f9ea Test Suite Runner", expanded=False):
             format_func=lambda k: suite_opts.get(k, k),
             key="suite_picker",
         )
-        run_suite = col_r.button("\u25b6 Run Suite", type="primary", key="run_suite_btn")
+        run_suite = col_r.button("▶ Run Suite", type="primary", key="run_suite_btn")
 
         if run_suite:
-            with st.spinner("Running test suite\u2026 this may take a few seconds"):
+            with st.spinner("Running test suite… this may take a few seconds"):
                 st.session_state.suite_result = api_post(
                     "/execute_suite",
                     {"suite_name": sel_suite, "reset_before": True},
@@ -499,7 +664,7 @@ with st.expander("\U0001f9ea Test Suite Runner", expanded=False):
             import pandas as pd
             df_rows = [
                 {
-                    "": "\u2705" if r.get("passed") else "\u274c",
+                    "":             "✅" if r.get("passed") else "❌",
                     "Scenario":     r.get("name"),
                     "Exp RC":       r.get("expected_network_response_code"),
                     "Act RC":       r.get("actual_network_response_code"),
@@ -513,7 +678,7 @@ with st.expander("\U0001f9ea Test Suite Runner", expanded=False):
 
             html_report = _build_html_report(sr)
             st.download_button(
-                "\u2b07 Download HTML Report",
+                "⬇ Download HTML Report",
                 data=html_report,
                 file_name=f"suite_report_{sr.get('run_at','')[:10]}.html",
                 mime="text/html",
@@ -526,7 +691,7 @@ with st.expander("\U0001f9ea Test Suite Runner", expanded=False):
 # Enhancement 3: NFC / Chip Card Terminal Emulator
 # --------------------------------------------------------------------------- #
 st.markdown("---")
-with st.expander("\U0001f4f1 NFC / Chip Card Terminal Emulator", expanded=False):
+with st.expander("📱 NFC / Chip Card Terminal Emulator", expanded=False):
     st.markdown("#### Software-Only EMV Chip Card Simulator")
     st.caption(
         "APDU (Application Protocol Data Unit) command emulation — no physical "
@@ -535,7 +700,7 @@ with st.expander("\U0001f4f1 NFC / Chip Card Terminal Emulator", expanded=False)
     )
 
     # Card state panel
-    if st.button("\U0001f504 Refresh Card State", key="chip_refresh"):
+    if st.button("🔄 Refresh Card State", key="chip_refresh"):
         resp = api_post("/chip/command", {"command": "GET_STATE"})
         if resp:
             st.session_state.card_state = resp.get("card_state", {})
@@ -673,7 +838,7 @@ with st.expander("\U0001f4f1 NFC / Chip Card Terminal Emulator", expanded=False)
                 f'<div style="font-family:monospace;font-size:0.85em;'
                 f'border-left:3px solid {color};padding:4px 8px;margin-bottom:4px">'
                 f'<b>{entry.get("command", "?")}</b> '
-                f'\u2192 SW: <b style="color:{color}">{sw}</b> ({status})'
+                f'→ SW: <b style="color:{color}">{sw}</b> ({status})'
                 f'{data_part}</div>',
                 unsafe_allow_html=True,
             )
