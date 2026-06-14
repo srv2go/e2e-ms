@@ -92,6 +92,9 @@ async def execute(scenario_id: str, unique: bool = True):
     event_type = scenario.get("event_type", "authorization")
     base_request = dict(scenario.get("request", {}))
 
+    # Capture cardholder tap payload (pre-Terminal) for audit trail.
+    ts_cardholder = datetime.now(timezone.utc).isoformat()
+
     # Terminal layer: normalise + stamp STAN/RRN + (optionally) unique txn id.
     request_dict = Terminal.swipe(base_request, unique=unique)
 
@@ -104,6 +107,8 @@ async def execute(scenario_id: str, unique: bool = True):
     else:
         request_dict["event_type"] = "authorization"
 
+    ts_outbound = datetime.now(timezone.utc).isoformat()
+
     start = time.perf_counter()
     try:
         resp = requests.post(ACQUIRER_URL, json=request_dict, timeout=15)
@@ -112,6 +117,8 @@ async def execute(scenario_id: str, unique: bool = True):
         response_json = {"error": str(e)}
     duration_ms = round((time.perf_counter() - start) * 1000, 2)
 
+    ts_inbound = datetime.now(timezone.utc).isoformat()
+
     expected_rc = scenario.get("expected_network_response_code")
     expected_dec = scenario.get("expected_customer_decision")
     actual_rc = response_json.get("response_code")
@@ -119,11 +126,113 @@ async def execute(scenario_id: str, unique: bool = True):
 
     passed = (actual_rc == expected_rc) and (expected_dec is None or actual_dec == expected_dec)
 
+    # Build per-hop audit trail for debugging.
+    marqeta_event_type = response_json.get("marqeta_webhook_event_type")
+    jit_method = response_json.get("jit_funding_method")
+    customer_body = response_json.get("customer_response_body")
+
+    audit_trail = [
+        {
+            "step": 1,
+            "actor": "Cardholder Tap",
+            "direction": "\u2192",
+            "label": "Cardholder initiates transaction at merchant terminal",
+            "payload": base_request,
+            "timestamp": ts_cardholder,
+        },
+        {
+            "step": 2,
+            "actor": "Terminal",
+            "direction": "\u2192",
+            "label": "Terminal normalises request and stamps STAN / RRN",
+            "payload": request_dict,
+            "timestamp": ts_outbound,
+        },
+        {
+            "step": 3,
+            "actor": "Acquirer",
+            "direction": "\u2192",
+            "label": "Acquirer forwards ISO-8583 message to Visa network",
+            "payload": request_dict,
+            "timestamp": ts_outbound,
+        },
+        {
+            "step": 4,
+            "actor": "Visa Network",
+            "direction": "\u2192",
+            "label": "Visa network routes authorization request to Marqeta issuer processor",
+            "payload": request_dict,
+            "timestamp": ts_outbound,
+        },
+        {
+            "step": 5,
+            "actor": "Marqeta Issuer Processor",
+            "direction": "\u2192",
+            "label": f"JIT Funding webhook dispatched to customer endpoint"
+                     f" ({marqeta_event_type} / {jit_method})",
+            "payload": {
+                "event_type": marqeta_event_type,
+                "jit_funding_method": jit_method,
+                "transaction_id": request_dict.get("transaction_id"),
+                "amount": request_dict.get("amount"),
+                "currency": request_dict.get("currency"),
+                "merchant_name": request_dict.get("merchant_name"),
+                "stan": request_dict.get("stan"),
+                "rrn": request_dict.get("rrn"),
+            },
+            "timestamp": ts_outbound,
+        },
+        {
+            "step": 6,
+            "actor": "Customer JIT (System Under Test)",
+            "direction": "\u2190",
+            "label": f"Customer JIT decision: {actual_dec}",
+            "payload": customer_body,
+            "timestamp": ts_inbound,
+        },
+        {
+            "step": 7,
+            "actor": "Visa Network",
+            "direction": "\u2190",
+            "label": f"Visa returns network response code: {actual_rc}",
+            "payload": {
+                "response_code": response_json.get("response_code"),
+                "auth_code": response_json.get("auth_code"),
+                "customer_decision": actual_dec,
+                "customer_status_code": response_json.get("customer_status_code"),
+                "stan": response_json.get("stan"),
+                "rrn": response_json.get("rrn"),
+            },
+            "timestamp": ts_inbound,
+        },
+        {
+            "step": 8,
+            "actor": "Acquirer",
+            "direction": "\u2190",
+            "label": "Acquirer relays authorization response to terminal",
+            "payload": {
+                "response_code": response_json.get("response_code"),
+                "auth_code": response_json.get("auth_code"),
+                "customer_decision": actual_dec,
+                "network": response_json.get("network"),
+            },
+            "timestamp": ts_inbound,
+        },
+        {
+            "step": 9,
+            "actor": "Merchant Terminal",
+            "direction": "\u2190",
+            "label": "Final result displayed at merchant terminal",
+            "payload": response_json,
+            "timestamp": ts_inbound,
+        },
+    ]
+
     trace = {
         "scenario_id": scenario.get("id"),
         "scenario_name": scenario.get("name"),
         "event_type": event_type,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": ts_cardholder,
         "request_sent": request_dict,
         "response_received": response_json,
         "expected_network_response_code": expected_rc,
@@ -132,6 +241,7 @@ async def execute(scenario_id: str, unique: bool = True):
         "actual_customer_decision": actual_dec,
         "passed": passed,
         "duration_ms": duration_ms,
+        "audit_trail": audit_trail,
     }
 
     HISTORY.append(trace)
