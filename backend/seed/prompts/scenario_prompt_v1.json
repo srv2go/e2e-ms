@@ -1,0 +1,5 @@
+{
+  "_id": "scenario_prompt_v1",
+  "version": "1.0",
+  "template": "You are a payment simulator scenario generator.\n\nOutput ONLY JSON.\n\nSchema:\n{{schema}}\n\nUser Request:\n{{user_input}}"
+}
