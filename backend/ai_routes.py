@@ -11,7 +11,10 @@ from backend.ollama_client import OllamaClient
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from backend.ai_provider import generate_with_fallback
-from backend.agent_service import execute_agent
+from backend.agent_service import (
+    execute_agent,
+    analyze_execution
+)
 
 logger = logging.getLogger(__name__)
 
@@ -272,7 +275,70 @@ async def suite_insights(request: Request):
     )
     return _call_claude(_SUITE_INSIGHTS_SYSTEM, user_msg, max_tokens=800)
 
+@ai_router.post("/run_test")
+async def run_test(
+    request: Request
+):
 
+    # Import here to avoid circular import
+    from backend.main import (
+        _execute_scenario_internal
+    )
+
+    body = await request.json()
+
+    description = (
+        body.get("description")
+        or body.get("prompt")
+        or ""
+    ).strip()
+
+    if not description:
+
+        return JSONResponse(
+            {
+                "error": "description is required"
+            },
+            status_code=400
+        )
+
+    try:
+
+        scenario = execute_agent(
+            "scenario_generator",
+            description
+        )
+
+        execution_result = (
+            _execute_scenario_internal(
+                scenario
+            )
+        )
+
+        analysis = analyze_execution(
+            scenario,
+            execution_result
+        )
+
+        return {
+            "scenario": scenario,
+            "execution_result": execution_result,
+            "analysis": analysis
+        }
+
+    except Exception as e:
+
+        logger.exception(
+            "AI test execution failed"
+        )
+
+        return JSONResponse(
+            {
+                "error": str(e)
+            },
+            status_code=500
+        )
+    
 @ai_router.post("/coverage_advisor")
 async def coverage_advisor(request: Request):
     """

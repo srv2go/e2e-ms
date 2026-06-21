@@ -12,12 +12,6 @@ from backend.mongo_repository import (
 
 def _seed_directory(collection, directory):
 
-    if collection.count_documents({}) > 0:
-        print(
-            f"Skipping {collection.name} seed"
-        )
-        return
-
     path = Path(directory)
 
     if not path.exists():

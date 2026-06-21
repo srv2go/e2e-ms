@@ -93,3 +93,41 @@ def execute_agent(
     )
 
     return generated
+
+def analyze_execution(
+    scenario,
+    execution_result
+):
+
+    agent = get_agent(
+        "test_execution_agent"
+    )
+
+    prompt_doc = get_prompt(
+        agent["prompt_template_id"]
+    )
+
+    prompt = prompt_doc["template"]
+
+    prompt = prompt.replace(
+        "{{scenario}}",
+        json.dumps(
+            scenario,
+            indent=2
+        )
+    )
+
+    prompt = prompt.replace(
+        "{{execution_result}}",
+        json.dumps(
+            execution_result,
+            indent=2
+        )
+    )
+
+    client = OllamaClient()
+
+    return client.generate(
+        model=agent["model"],
+        prompt=prompt
+    )
