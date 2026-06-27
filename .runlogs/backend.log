@@ -1,0 +1,43 @@
+INFO:     Started server process [18633]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+=== STARTUP HOOK CALLED ===
+Starting bootstrap
+Loading backend/scenarios/rc_62_restricted_card.json
+Loading backend/scenarios/rc_91_issuer_unavailable.json
+Loading backend/scenarios/rc_75_pin_retries.json
+Loading backend/scenarios/rc_51_insufficient_funds.json
+Loading backend/scenarios/rc_57_txn_not_permitted.json
+Loading backend/scenarios/advice_clearing.json
+Loading backend/scenarios/suite_pin_verify.json
+Loading backend/scenarios/suite_preauth.json
+Loading backend/scenarios/suite_zero_amount.json
+Loading backend/scenarios/my_scenario_01.json
+Loading backend/scenarios/rc_96_system_error.json
+Loading backend/scenarios/authorization_decline.json
+Loading backend/scenarios/rc_54_expired_card.json
+Loading backend/scenarios/suite_purchase_decline.json
+Loading backend/scenarios/suite_refund.json
+Loading backend/scenarios/suite_purchase_approve.json
+Loading backend/scenarios/refund.json
+Loading backend/scenarios/authorization_approve.json
+Loading backend/scenarios/srv_scenario_01.json
+Loading backend/scenarios/rc_65_velocity_exceeded.json
+Loading backend/scenarios/suite_multicurrency_eur.json
+Loading backend/scenarios/suite_advice.json
+Loading backend/scenarios/suite_atm_decline.json
+Loading backend/scenarios/suite_atm_approve.json
+Loading backend/scenarios/suite_large_decline.json
+Loading backend/scenarios/suite_oct.json
+Loading backend/scenarios/suite_reversal.json
+Loading backend/scenarios/rc_61_exceeds_limit.json
+Loading backend/scenarios/suite_duplicate.json
+Loading backend/seed/templates/default_scenario.json
+Loading backend/seed/agents/scenario_generator.json
+Loading backend/seed/agents/test_execution_agent.json
+Loading backend/seed/prompts/scenario_prompt_v1.json
+Loading backend/seed/prompts/test_execution_prompt_v1.json
+Loading backend/seed/guardrails/scenario_guardrail_v1.json
+Bootstrap complete
+INFO:     127.0.0.1:63202 - "GET /health HTTP/1.1" 200 OK
