@@ -27,6 +27,14 @@ try:
 except ImportError:  # pragma: no cover
     from terminal import Terminal
 
+# ISO 8583 origination + JPF mapping (T3/T4 — Phase 1).
+try:
+    from backend.network.originator import build_0100
+    from backend.mapping.engine import map_to_jpf
+    _ISO_AVAILABLE = True
+except Exception:  # pragma: no cover
+    _ISO_AVAILABLE = False
+
 # Suite catalogue.
 try:
     from backend.suites import SUITES
@@ -144,7 +152,11 @@ def _find_scenario(
 # --------------------------------------------------------------------------- #
 # Core execution helper (shared by /execute and /execute_suite)
 # --------------------------------------------------------------------------- #
-def _execute_scenario_internal(scenario: dict, unique: bool = True) -> dict:
+def _execute_scenario_internal(
+    scenario: dict,
+    unique: bool = True,
+    network_override: str | None = None,
+) -> dict:
     """Run a scenario dict end-to-end and return a trace dict."""
     event_type = scenario.get("event_type", "authorization")
     base_request = dict(scenario.get("request", {}))
@@ -163,6 +175,37 @@ def _execute_scenario_internal(scenario: dict, unique: bool = True) -> dict:
             request_dict["advice_type"] = scenario.get("advice_type", "CLEARING")
     else:
         request_dict["event_type"] = "authorization"
+
+    # ── ISO 8583 origination + JPF mapping (T3/T4) ──────────────────────────
+    # Build the 0100 from the scenario request and map it to the canonical JPF.
+    # This runs in-process; it does NOT affect the HTTP path to the acquirer.
+    iso_message: dict = {}
+    jpf: dict = {}
+    iso_warnings: list = []
+    if _ISO_AVAILABLE:
+        try:
+            # Resolve network from scenario or override; default → BIN routing
+            _net_override = network_override or scenario.get("network")
+            orig = build_0100(request_dict, network_override=_net_override)
+            iso_message = {
+                "network":       orig.network,
+                "mti":           orig.mti,
+                "stan":          orig.stan,
+                "rrn":           orig.rrn,
+                "fields":        orig.iso_fields,
+                "packed_hex":    orig.packed_hex,
+                "unpacked":      orig.unpacked_fields,
+                "private_des":   orig.private_des,
+            }
+            map_result = map_to_jpf(
+                orig.unpacked_fields,
+                orig.network,
+                icc_hex=request_dict.get("icc_data"),
+            )
+            jpf = map_result.jpf
+            iso_warnings = map_result.warnings
+        except Exception as exc:  # pragma: no cover
+            iso_message = {"error": str(exc)}
 
     ts_outbound = datetime.now(timezone.utc).isoformat()
 
@@ -301,6 +344,10 @@ def _execute_scenario_internal(scenario: dict, unique: bool = True) -> dict:
         "passed": passed,
         "duration_ms": duration_ms,
         "audit_trail": audit_trail,
+        # ── Phase 1 additions (T5) ───────────────────────────────────────────
+        "iso_message":   iso_message,   # packed ISO 8583 artefacts
+        "jpf":           jpf,           # canonical JSON Payment Format
+        "iso_warnings":  iso_warnings,  # validation flags (e.g. EMV mismatches)
     }
 
     # Persist to SQLite.
@@ -386,11 +433,15 @@ async def list_scenarios(
 
 
 @app.post("/execute/{scenario_id}")
-async def execute(scenario_id: str, unique: bool = True):
+async def execute(
+    scenario_id: str,
+    unique: bool = True,
+    network: str = Query(None, description="Force a specific network (visa|mastercard|amex|discover)"),
+):
     scenario = _find_scenario(scenario_id)
     if scenario is None:
         return {"error": f"scenario '{scenario_id}' not found"}
-    return _execute_scenario_internal(scenario, unique=unique)
+    return _execute_scenario_internal(scenario, unique=unique, network_override=network)
 
 
 # --------------------------------------------------------------------------- #
