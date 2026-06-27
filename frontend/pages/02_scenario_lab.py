@@ -257,7 +257,7 @@ if st.session_state.demo_mode:
                 idx      = (entry.get("step", 1) - 1)
                 node_idx = _STEP_NODE_MAP.get(idx + 1, 0)
                 n_ph.markdown(render_node_diagram(node_idx), unsafe_allow_html=True)
-                render_playback_step(s_ph, entry, entry.get("step"), len(audit))
+                render_playback_step(entry, entry.get("step"), len(audit))
                 payload = entry.get("payload") or {}
                 if payload:
                     lines = json.dumps(payload, indent=2).splitlines()
