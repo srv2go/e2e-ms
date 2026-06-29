@@ -11,9 +11,17 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import streamlit as st
 from utils.api_client import api_get, api_post
 from utils.session_state import init_session_state
+from utils.theme import inject_theme, provider_badge_html
 
 init_session_state()
-st.set_page_config(page_title="e2MS — ISO Enrichment Trace", page_icon="🔬", layout="wide")
+st.set_page_config(page_title="Paycon e2ePS — ISO Enrichment Trace", page_icon="🔬", layout="wide")
+inject_theme()
+# ── AI provider status badge ─────────────────────────────────────────────────
+_providers_resp = (lambda r: r if r else {})((__import__('utils.api_client', fromlist=['api_get']).api_get('/ai/providers')))
+_primary = _providers_resp.get('primary', 'claude')
+_pmap = {p['provider']: p for p in _providers_resp.get('providers', [])}
+_detected = (_pmap.get(_primary) or {}).get('key_status') == 'detected'
+st.sidebar.markdown(provider_badge_html(_primary, _detected), unsafe_allow_html=True)
 
 st.title("🔬 ISO 8583 Enrichment Trace")
 st.caption(

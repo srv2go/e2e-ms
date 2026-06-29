@@ -1,5 +1,5 @@
 # frontend/pages/04_iso_mapper.py
-"""ISO ↔ JPBOS ↔ JCF three-column canonical conversion workbench."""
+"""ISO ↔ JPOS ↔ JPF three-column canonical conversion workbench."""
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -7,20 +7,22 @@ import streamlit as st
 import pandas as pd
 from utils.api_client import api_get, api_post
 from utils.session_state import init_session_state
+from utils.theme import inject_theme
 
 init_session_state()
-st.set_page_config(page_title="e2MS — ISO Mapper", page_icon="🔄", layout="wide")
+st.set_page_config(page_title="Paycon e2ePS — ISO Mapper", page_icon="🔄", layout="wide")
+inject_theme()
 
-st.title("🔄 ISO 8583 ↔ JPBOS ↔ JCF Canonical Workbench")
+st.title("🔄 ISO 8583 ↔ JPOS ↔ JPF Canonical Workbench")
 st.caption(
     "Visualise how an issuer processor like Marqeta translates network scheme ISO 8583 messages "
-    "into an internal JPBOS canonical form and then into the Marqeta JCF (JSON) payload sent to "
+    "into an internal JPOS canonical form and then into the JPF (JSON) payload sent to "
     "your JIT Funding endpoint."
 )
 
 # ── Load iso_mapping module ───────────────────────────────────────────────────
 try:
-    from iso_mapping import DEFAULT_ISO_JCF_MAPPING, extract_iso_jcf_values
+    from iso_mapping import DEFAULT_ISO_JPF_MAPPING, extract_iso_jpf_values
     _iso_ok = True
 except ImportError:
     _iso_ok = False
@@ -29,8 +31,8 @@ if not _iso_ok:
     st.error("iso_mapping.py not found in the frontend directory. Please check your installation.")
     st.stop()
 
-if st.session_state.iso_jcf_mapping is None:
-    st.session_state.iso_jcf_mapping = list(DEFAULT_ISO_JCF_MAPPING)
+if st.session_state.iso_jpf_mapping is None:
+    st.session_state.iso_jpf_mapping = list(DEFAULT_ISO_JPF_MAPPING)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 tab_map, tab_live, tab_explain = st.tabs([
@@ -41,35 +43,35 @@ tab_map, tab_live, tab_explain = st.tabs([
 
 # ── Tab 1: Mapping table ──────────────────────────────────────────────────────
 with tab_map:
-    st.subheader("ISO 8583 DE ↔ JPBOS ↔ JCF Mapping")
+    st.subheader("ISO 8583 DE ↔ JPOS ↔ JPF Mapping")
     st.caption("Editable — changes are session-scoped and reflect immediately in Live Translation.")
     edited = st.data_editor(
-        pd.DataFrame(st.session_state.iso_jcf_mapping),
+        pd.DataFrame(st.session_state.iso_jpf_mapping),
         num_rows="dynamic", use_container_width=True,
         column_config={
             "de":          st.column_config.TextColumn("DE #",        width=80),
             "iso_name":    st.column_config.TextColumn("ISO Name",    width=200),
-            "jcf_field":   st.column_config.TextColumn("JCF Field",   width=150),
+            "jpf_field":   st.column_config.TextColumn("JPF Field",   width=150),
             "description": st.column_config.TextColumn("Description", width=250),
             "transform":   st.column_config.SelectboxColumn(
                 "Transform", width=160,
                 options=["passthrough","tokenize","format_iso8601",
                          "extract_time","truncate_25","numeric_to_alpha"]),
         }, key="iso_tbl_mapper")
-    st.session_state.iso_jcf_mapping = edited.to_dict("records")
+    st.session_state.iso_jpf_mapping = edited.to_dict("records")
     c_reset, c_dl = st.columns(2)
     if c_reset.button("↩️ Reset to defaults", key="iso_reset_mapper"):
-        st.session_state.iso_jcf_mapping = list(DEFAULT_ISO_JCF_MAPPING)
+        st.session_state.iso_jpf_mapping = list(DEFAULT_ISO_JPF_MAPPING)
         st.rerun()
-    csv_data = pd.DataFrame(st.session_state.iso_jcf_mapping).to_csv(index=False)
+    csv_data = pd.DataFrame(st.session_state.iso_jpf_mapping).to_csv(index=False)
     c_dl.download_button("⬇ Export CSV", data=csv_data,
-                         file_name="iso_jcf_mapping.csv", mime="text/csv", key="iso_csv")
+                         file_name="iso_jpf_mapping.csv", mime="text/csv", key="iso_csv")
 
 # ── Tab 2: Live Translation ───────────────────────────────────────────────────
 with tab_live:
     st.subheader("Three-Column Canonical Conversion View")
     st.caption(
-        "Run any scenario then see its values mapped across ISO wire → JPBOS canonical → JCF JSON."
+        "Run any scenario then see its values mapped across ISO wire → JPOS canonical → JPF JSON."
     )
 
     scenarios_resp = api_get("/scenarios", params={"limit": 200})
@@ -87,8 +89,8 @@ with tab_live:
 
     trace = st.session_state.last_trace
     if trace and "error" not in trace:
-        iso_rows = extract_iso_jcf_values(
-            st.session_state.iso_jcf_mapping,
+        iso_rows = extract_iso_jpf_values(
+            st.session_state.iso_jpf_mapping,
             trace.get("request_sent", {}),
             trace.get("response_received", {}),
         )
@@ -96,8 +98,8 @@ with tab_live:
         # Three-column layout
         col_iso, col_jpbos, col_jcf = st.columns(3)
         col_iso.markdown("#### 📡 ISO 8583 Wire")
-        col_jpbos.markdown("#### ⚙️ JPBOS Canonical")
-        col_jcf.markdown("#### 📦 Marqeta JCF")
+        col_jpbos.markdown("#### ⚙️ JPOS Canonical")
+        col_jcf.markdown("#### 📦 JPF")
 
         for row in iso_rows:
             col_iso.markdown(
@@ -119,7 +121,7 @@ with tab_live:
             col_jcf.markdown(
                 f'<div style="font-size:0.8em;border:1px solid #c3e6cb;background:#d4edda;'
                 f'border-radius:4px;padding:4px 8px;margin-bottom:4px">'
-                f'<b>{row["jcf_field"]}</b><br>'
+                f'<b>{row["jpf_field"]}</b><br>'
                 f'<code>{row["jcf_value"]}</code></div>',
                 unsafe_allow_html=True,
             )

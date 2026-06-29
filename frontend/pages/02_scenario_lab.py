@@ -6,10 +6,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import streamlit as st
 from utils.api_client import api_get, api_post
 from utils.session_state import init_session_state
+from utils.theme import inject_theme
 from utils.demo_mode import render_node_diagram, render_playback_step, _STEP_NODE_MAP
 
 init_session_state()
-st.set_page_config(page_title="e2MS — Scenario Lab", page_icon="🧬", layout="wide")
+st.set_page_config(page_title="Paycon e2ePS — Scenario Lab", page_icon="🧬", layout="wide")
+inject_theme()
 
 st.title("🧬 Scenario Lab")
 
@@ -39,7 +41,7 @@ with st.sidebar:
     st.subheader("Simulator Mode")
     st.session_state.iso_mode = st.toggle(
         "ISO Simulator Mode", value=st.session_state.iso_mode,
-        help="Show ISO 8583 DE ↔ JCF mapping panel")
+        help="Show ISO 8583 DE ↔ JPF mapping panel")
     st.session_state.demo_mode = st.toggle(
         "Demo Mode", value=st.session_state.demo_mode,
         help="Animated step-by-step transaction replay")
@@ -197,36 +199,36 @@ if trace and "error" not in trace:
 if st.session_state.iso_mode:
     try:
         import pandas as pd
-        from iso_mapping import DEFAULT_ISO_JCF_MAPPING, extract_iso_jcf_values
+        from iso_mapping import DEFAULT_ISO_JPF_MAPPING, extract_iso_jpf_values
         st.markdown("---")
-        if st.session_state.iso_jcf_mapping is None:
-            st.session_state.iso_jcf_mapping = list(DEFAULT_ISO_JCF_MAPPING)
-        with st.expander("🔄 ISO 8583 ↔ JCF Mapping Table (editable)", expanded=True):
+        if st.session_state.iso_jpf_mapping is None:
+            st.session_state.iso_jpf_mapping = list(DEFAULT_ISO_JPF_MAPPING)
+        with st.expander("🔄 ISO 8583 ↔ JPF Mapping Table (editable)", expanded=True):
             st.caption("Edit rows, add/remove DE entries. Changes are session-scoped.")
             edited = st.data_editor(
-                pd.DataFrame(st.session_state.iso_jcf_mapping),
+                pd.DataFrame(st.session_state.iso_jpf_mapping),
                 num_rows="dynamic", use_container_width=True,
                 column_config={
                     "de":          st.column_config.TextColumn("DE #",        width=80),
                     "iso_name":    st.column_config.TextColumn("ISO Name",    width=200),
-                    "jcf_field":   st.column_config.TextColumn("JCF Field",   width=150),
+                    "jpf_field":   st.column_config.TextColumn("JPF Field",   width=150),
                     "description": st.column_config.TextColumn("Description", width=240),
                     "transform":   st.column_config.SelectboxColumn(
                         "Transform", width=150,
                         options=["passthrough","tokenize","format_iso8601",
                                  "extract_time","truncate_25","numeric_to_alpha"]),
                 }, key="iso_tbl_lab")
-            st.session_state.iso_jcf_mapping = edited.to_dict("records")
+            st.session_state.iso_jpf_mapping = edited.to_dict("records")
             if st.button("Reset to defaults", key="iso_reset_lab"):
-                st.session_state.iso_jcf_mapping = list(DEFAULT_ISO_JCF_MAPPING)
+                st.session_state.iso_jpf_mapping = list(DEFAULT_ISO_JPF_MAPPING)
                 st.rerun()
 
         if trace:
-            with st.expander("ISO ↔ JCF Translation — last transaction", expanded=True):
-                rows = extract_iso_jcf_values(
-                    st.session_state.iso_jcf_mapping,
+            with st.expander("ISO ↔ JPF Translation — last transaction", expanded=True):
+                rows = extract_iso_jpf_values(
+                    st.session_state.iso_jpf_mapping,
                     trace.get("request_sent", {}), trace.get("response_received", {}))
-                df_tr = pd.DataFrame(rows)[["de","iso_name","iso_value","jcf_field","jcf_value","transform"]]
+                df_tr = pd.DataFrame(rows)[["de","iso_name","iso_value","jpf_field","jcf_value","transform"]]
                 st.dataframe(df_tr, use_container_width=True)
     except ImportError:
         st.info("ISO mapping module not found — ensure iso_mapping.py is in the frontend directory.")

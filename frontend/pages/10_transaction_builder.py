@@ -19,14 +19,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import streamlit as st
 from utils.api_client import api_get, api_post
 from utils.session_state import init_session_state
+from utils.theme import inject_theme
 from utils.demo_mode import render_node_diagram, render_playback_step, _STEP_NODE_MAP
 
 init_session_state()
 st.set_page_config(
-    page_title="e2MS — Transaction Builder",
+    page_title="Paycon e2ePS — Transaction Builder",
     page_icon="💳",
     layout="wide",
 )
+inject_theme()
 
 st.title("💳 Transaction Builder")
 st.caption(

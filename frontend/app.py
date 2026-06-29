@@ -1,9 +1,10 @@
 # frontend/app.py
-"""e2MS — Marqeta E2E Simulator.
+"""Paycon e2ePS — End-to-End Payment Simulator.
 
 Multi-page Streamlit application shell.
-The bulk of the UI lives in frontend/pages/ (01_home.py … 08_analytics.py).
-This file only sets global page config and provides a landing redirect notice.
+The bulk of the UI lives in frontend/pages/ (01_home.py … 12_enrichment_trace.py).
+This file sets global page config, injects the shared Paycon theme, and shows a
+branded landing screen with a live health check.
 """
 import sys
 import os
@@ -14,50 +15,49 @@ sys.path.insert(0, os.path.dirname(__file__))
 import streamlit as st
 from utils.session_state import init_session_state
 from utils.api_client import get_api_url
+from utils.theme import inject_theme
 
 init_session_state()
 
 st.set_page_config(
-    page_title="e2MS — Marqeta E2E Simulator",
-    page_icon="💳",
+    page_title="Paycon e2ePS — End-to-End Payment Simulator",
+    page_icon="🏦",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-st.title("💳 e2MS — Marqeta E2E Simulator")
-st.caption("Enterprise-grade end-to-end issuer processor test platform")
+inject_theme()
 
-st.markdown("---")
-
+# ── Brand header ───────────────────────────────────────────────────────────────
 st.markdown("""
-### 🗂️ Navigation
+<div class="pc-brand-bar">
+  <span style="font-size:2em">🏦</span>
+  <div>
+    <div class="pc-brand-name">Pay<span>con</span> · e2ePS</div>
+    <div style="font-size:0.76em;color:#7a9cc0">End-to-End Payment Simulator</div>
+  </div>
+  <span class="pc-brand-tag">pilot</span>
+</div>
+""", unsafe_allow_html=True)
 
-Use the sidebar to navigate between pages:
-
-| Page | Description |
-|------|-------------|
-| 🏠 **Home** | Live KPIs, service health, quick-run |
-| 🧬 **Scenario Lab** | Browse, run, and generate scenarios; ISO mapper; demo mode |
-| 🧪 **Suite Runner** | Run test suites, download HTML/JUnit reports, AI failure explanations |
-| 🔄 **ISO Mapper** | Three-column ISO 8583 ↔ JPBOS ↔ JCF canonical workbench |
-| 📱 **Terminal Emulator** | Software EMV chip/NFC APDU emulation |
-| ⚙️ **Sandbox Config** | Environment registry, health checks, JIT config |
-| 🤖 **AI Copilot** | Claude-powered scenario generation, anomaly explanation, coverage gap advisor |
-| 📊 **Analytics** | RC coverage matrix, latency waterfall, daily trends |
-""")
+st.markdown(
+    "Use the **sidebar** to navigate. "
+    "Start at **🏠 Home** for live health, a one-click demo run, and recent results."
+)
 
 st.markdown("---")
-api_url = get_api_url()
-st.info(f"🌐 Connected to backend: **{api_url}**")
 
-# Quick health check on landing
+# ── Live backend status ────────────────────────────────────────────────────────
+api_url = get_api_url()
+st.caption(f"Backend: `{api_url}`")
+
 try:
-    import requests
-    r = requests.get(f"{api_url}/health", timeout=2)
+    import requests as _req
+    r = _req.get(f"{api_url}/health", timeout=3)
     if r.status_code == 200:
-        st.success("✅ Backend is reachable")
+        st.success("✅ Backend is reachable — navigate to **🏠 Home** to get started")
     else:
         st.warning(f"⚠️ Backend returned HTTP {r.status_code}")
 except Exception as e:
-    st.error(f"❌ Cannot reach backend at {api_url} — {e}")
-    st.caption("Start the stack with: `docker-compose up --build`")
+    st.error(f"❌ Cannot reach backend at `{api_url}` — {e}")
+    st.caption("Start the stack: `make demo-local` (no Docker) or `docker-compose up --build`")

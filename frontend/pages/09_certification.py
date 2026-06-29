@@ -6,10 +6,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import streamlit as st
 from utils.api_client import api_get, api_post
 from utils.session_state import init_session_state
+from utils.theme import inject_theme
 from utils.html_report import build_certification_report, build_certification_pdf
 
 init_session_state()
-st.set_page_config(page_title="e2MS — Certification", page_icon="🏅", layout="wide")
+st.set_page_config(page_title="Paycon e2ePS — Certification", page_icon="🏅", layout="wide")
+inject_theme()
 
 st.title("🏅 SUT Certification")
 
